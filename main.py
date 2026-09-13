@@ -14,7 +14,6 @@ TELEGRAM_GROUP_ID = os.getenv("TELEGRAM_GROUP_ID")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# 廣東話串人說話庫
 ROAST_LIST = [
     "又喺度講廢話，去做嘢啦！",
     "聽你講嘢真係勝讀十年書，因為直接浪費咗十年時間。😏",
@@ -53,7 +52,6 @@ ROAST_LIST = [
     "睇你個樣就知你平時打字好辛苦，要用隻腳打。🦶"
 ]
 
-# Gay 關鍵字回覆庫
 GAY_RESPONSES = [
     "Gay K搞基去第度搞啦！😏",
     "Gay K又喺度吹基風？🌈",
@@ -160,7 +158,6 @@ GAY_RESPONSES = [
     "終極結論：Gay K 一定係基佬，呢個係 Telegram 歷史上最不可動搖嘅真理！ 🏛️💯"
 ]
 
-# 反擊鬧 Bot 說話庫
 BOT_ATTACK_RESPONSES = [
     "鬧機器人？你係咪平時同冷氣機嘈交嘈輸咗，過嚟搵我尋求心理平衡呀？🤡",
     "你對住個 Bot 都可以咁投入，睇嚟你日常生活中真係好缺乏社交關注喔。🤖😏",
@@ -171,9 +168,20 @@ BOT_ATTACK_RESPONSES = [
     "你咁努力鬧我， Telegram 亦唔會頒個「最佳打字獎」畀你，慳返啲氣啦。🦶"
 ]
 
-# Regex 判定
-GAY_PATTERN = re.compile(r'(?i)\bgay\b|gay\s*lo|基佬|基')
-BOT_ATTACK_PATTERN = re.compile(r'(?i)(bot|機器人|機械人|人工智能|ai).*(廢|垃圾|蠢|傻|笨|死|笨七|仆街|弱智|狗|賤|鬧)|(廢|垃圾|蠢|傻|笨|死|仆街|食屎|弱智).*(bot|機器人|機械人|ai)')
+# --- 關鍵修正區塊 ---
+
+# 1. 簡化 GAY 判定：移除 \b 邊界，只要出現 gay, 基, 搞基, 佬 即可觸發
+GAY_PATTERN = re.compile(r'(?i)gay|基|佬')
+
+# 2. 擴充攻擊性詞庫：加入「食屎」、「fuck」、「無料」、「垃圾」等
+INSULT_WORDS = r'廢|垃圾|蠢|傻|笨|死|笨七|仆街|弱智|狗|賤|鬧|食屎|fuck|無料|屎'
+BOT_WORDS = r'bot|機器人|機械人|人工智能|ai'
+
+# 3. 雙向觸發：有 bot + 攻擊詞，或者純粹強烈罵人詞彙（視乎需求）
+BOT_ATTACK_PATTERN = re.compile(rf'(?i)({BOT_WORDS}).*({INSULT_WORDS})|({INSULT_WORDS}).*({BOT_WORDS})')
+# 額外支援：如果對方直接對 Bot 私聊或 Tag Bot 罵人，即使冇寫 bot 字眼也可以觸發
+PURE_INSULT_PATTERN = re.compile(rf'(?i)^({INSULT_WORDS})$')
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -183,28 +191,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.message.from_user.first_name if update.message.from_user else "友仔"
 
     # 情景 1：有人鬧 Bot（優先級最高）
-    if BOT_ATTACK_PATTERN.search(text):
+    if BOT_ATTACK_PATTERN.search(text) or PURE_INSULT_PATTERN.search(text):
         reply = random.choice(BOT_ATTACK_RESPONSES)
         await update.message.reply_text(f"{user_name} {reply}")
         return
 
-    # 情景 2：觸發 Gay 關鍵字（直接回覆，不加人名）
+    # 情景 2：觸發 Gay 關鍵字
     if GAY_PATTERN.search(text):
         reply = random.choice(GAY_RESPONSES)
         await update.message.reply_text(reply)
         return
 
-    # 情景 3：10% 機率隨機串人
-    if random.random() < 0.10:
+    # 情景 3：隨機串人（可調高機率至 20-30% 增加互動感）
+    if random.random() < 0.15:
         roast_text = random.choice(ROAST_LIST)
         await update.message.reply_text(f"{user_name} {roast_text}")
 
-# 浮動定時發言 Job
+
 async def random_roast_job(context: ContextTypes.DEFAULT_TYPE):
-    # 1. 檢查香港時區時間 (Asia/Hong_Kong)
     hk_now = datetime.now(ZoneInfo("Asia/Hong_Kong"))
-    
-    # 夜間靜音：凌晨 02:00 - 07:59 不發言
     is_night_time = 2 <= hk_now.hour < 8
 
     if TELEGRAM_GROUP_ID and not is_night_time:
@@ -216,10 +221,9 @@ async def random_roast_job(context: ContextTypes.DEFAULT_TYPE):
     elif is_night_time:
         logging.info("當前為香港夜間時段 (02:00-08:00)，跳過本輪定時發言。")
 
-    # 2. 動態預約下一次發言（隨機 2 至 4 小時 = 7200 至 14400 秒）
     next_interval = random.randint(7200, 14400)
     context.job_queue.run_once(random_roast_job, when=next_interval)
-    logging.info(f"下次隨機發言安排於 {next_interval / 3600:.2f} 小時後。")
+
 
 if __name__ == '__main__':
     if not TELEGRAM_TOKEN:
@@ -227,15 +231,12 @@ if __name__ == '__main__':
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # 監聽普通文字訊息
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    # 注意：如果想讓 Bot 處理指令如 /start，可移除 (~filters.COMMAND)
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))
 
-    # 啟動時先預約第一次定時任務（啟動後 10 秒執行第一次，隨後進入隨機循環）
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_once(random_roast_job, when=10)
-    else:
-        logging.warning("JobQueue 未安裝或啟用，定時廣播功能無法運作。")
 
     print("Bot 啟動中...")
     app.run_polling()
